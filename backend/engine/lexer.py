@@ -103,9 +103,6 @@ KEYWORDS = {
     "RÉU": TokenType.REU,
     "REU": TokenType.REU,
     "PARTES": TokenType.PARTES,
-    "MULTA": TokenType.MULTA,
-    "JUROS": TokenType.JUROS,
-    "ASSINATURA": TokenType.ASSINATURA,
 }
 
 

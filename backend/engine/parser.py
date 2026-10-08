@@ -110,12 +110,19 @@ class Parser:
                 contract.partes.extend(parts)
 
             elif tok.type == TokenType.OBRIGACAO:
-                ob = self.parse_obligation()
-                contract.obligations.append(ob)
-                if ob.devedor and ob.devedor not in contract.partes:
-                    contract.partes.append(ob.devedor)
-                if ob.credor and ob.credor not in contract.partes:
-                    contract.partes.append(ob.credor)
+                # Check if it is a property accessor like 'obrigação.pagamento = ...'
+                if self.peek().type == TokenType.DOT:
+                    # Generic assignment or expression line
+                    line_text = self.consume_until_newline()
+                    if line_text.strip():
+                        contract.raw_variables["_LAST_EXPR"] = line_text.strip()
+                else:
+                    ob = self.parse_obligation()
+                    contract.obligations.append(ob)
+                    if ob.devedor and ob.devedor not in contract.partes:
+                        contract.partes.append(ob.devedor)
+                    if ob.credor and ob.credor not in contract.partes:
+                        contract.partes.append(ob.credor)
 
             elif tok.type == TokenType.TRANSICAO:
                 tr = self.parse_transition()
@@ -279,7 +286,9 @@ class Parser:
                 while self.current_token().type != TokenType.EOF:
                     self.skip_newlines()
                     sub_tok = self.current_token()
-                    if sub_tok.type in (TokenType.REQUER, TokenType.SE, TokenType.TRANSICAO, TokenType.CONTRATO, TokenType.OBRIGACAO, TokenType.AUDITORIA, TokenType.EOF):
+                    if sub_tok.type in (TokenType.REQUER, TokenType.SE, TokenType.TRANSICAO, TokenType.CONTRATO, TokenType.AUDITORIA, TokenType.EOF):
+                        break
+                    if sub_tok.type == TokenType.OBRIGACAO and self.peek().type != TokenType.DOT:
                         break
                     
                     if sub_tok.type == TokenType.APLICAR:
