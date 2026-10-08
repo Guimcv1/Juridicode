@@ -1,0 +1,45 @@
+CONTRATO CompraImovel
+
+ESTADO = RASCUNHO
+
+PARTES: COMPRADOR, VENDEDOR
+
+OBRIGAÇÃO pagamento
+DEVEDOR: COMPRADOR
+CREDOR: VENDEDOR
+VALOR: R$ 500.000
+VENCIMENTO: 10/12/2026
+
+SE não_pago até VENCIMENTO
+ENTÃO
+    APLICAR multa 2%
+    E juros 1% ao mês
+
+TRANSIÇÃO ASSINADO:
+    REQUER comprador.assinatura
+    REQUER vendedor.assinatura
+    ENTÃO
+        estado = ATIVO
+
+TRANSIÇÃO PAGO:
+    REQUER estado = ATIVO
+    REQUER comprovante.pagamento
+    ENTÃO
+        obrigação.pagamento = CUMPRIDO
+        estado = FINALIZADO
+
+TRANSIÇÃO VENCIDO:
+    SE data.hoje > vencimento
+    E obrigacao.pagamento != CUMPRIDO
+    ENTÃO
+        APLICAR multa
+        APLICAR juros
+        NOTIFICAR vendedor
+
+AUDITORIA DOCUMENTO:
+    Criado em: 12/01/1992
+    Criador: advogado.numero1
+    Editado pela última vez: 13/05/2005
+    Último editor: advogado.numero2
+    Histórico de Modificações: 235 adições, 12 deleções
+    UUID: 123e4567-e89b-12d3-a456-426614174000

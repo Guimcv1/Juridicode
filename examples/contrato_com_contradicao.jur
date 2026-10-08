@@ -1,0 +1,20 @@
+CONTRATO VendaAutomovel
+
+ESTADO = AGUARDANDO_ASSINATURA
+
+PARTES: JOAO_SILVA, JOAO_SILVA
+
+OBRIGAÇÃO transferencia_veiculo
+DEVEDOR: JOAO_SILVA
+CREDOR: JOAO_SILVA
+VALOR: R$ 85.000
+VENCIMENTO: 20/11/2026
+
+SE falta_vistoria
+ENTÃO
+    APLICAR retencao_crlv
+
+TRANSIÇÃO REGISTRADO:
+    REQUER detran.autorizacao
+    ENTÃO
+        estado = TRANSFERIDO
