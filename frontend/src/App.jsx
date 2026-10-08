@@ -100,7 +100,7 @@ export default function App() {
     setError(null);
     try {
       const targetCode = codeToRun !== null ? codeToRun : code;
-      const targetState = customState || runtimeState;
+      const targetState = customState !== null ? customState : runtimeState;
 
       const res = await fetch(`${API_BASE}/execute`, {
         method: 'POST',
@@ -115,6 +115,9 @@ export default function App() {
         throw new Error(data.error || 'Erro na compilação do código jurídico.');
       }
       setResult(data);
+      if (data.context) {
+        setRuntimeState(prev => ({ ...prev, ...data.context }));
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -130,12 +133,16 @@ export default function App() {
     } catch (e) {}
   };
 
-  const saveDocumentEvent = async (key, newValue) => {
+  const toggleRuntimeParam = async (key) => {
+    const updatedValue = !runtimeState[key];
+    const updatedState = { ...runtimeState, [key]: updatedValue };
+    setRuntimeState(updatedState);
+
     const dataStr = new Date().toISOString().split('T')[0];
-    const eventLog = `\n# [${dataStr}] REGISTRO: ${key} = ${newValue}`;
+    const eventLog = `\n# [${dataStr}] REGISTRO: ${key} = ${updatedValue}`;
     const newCode = code + eventLog;
     setCode(newCode);
-    
+
     try {
       await fetch(`${API_BASE}/save-document`, {
         method: 'POST',
@@ -146,14 +153,8 @@ export default function App() {
     } catch (e) {
       console.error("Erro ao salvar", e);
     }
-  };
 
-  const toggleRuntimeParam = (key) => {
-    const updatedValue = !runtimeState[key];
-    const updatedState = { ...runtimeState, [key]: updatedValue };
-    setRuntimeState(updatedState);
-    saveDocumentEvent(key, updatedValue);
-    runJuridicoCode(code, updatedState); // pass updated state and old code, wait! newCode isn't passed here. Let's pass newCode to execute as well.
+    runJuridicoCode(newCode, updatedState);
   };
 
   const manualSave = async () => {

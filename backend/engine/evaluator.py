@@ -19,8 +19,8 @@ class Evaluator:
         self.context: Dict[str, Any] = {
             "data.hoje": datetime.date.today().strftime("%d/%m/%Y"),
             "data.hoje_iso": datetime.date.today().isoformat(),
-            "comprador.assinatura": True,
-            "vendedor.assinatura": True,
+            "comprador.assinatura": False,
+            "vendedor.assinatura": False,
             "comprovante.pagamento": False,
             "pago": False,
             "nao_pago": True,
@@ -28,6 +28,26 @@ class Evaluator:
             "falta_vistoria": False,
             "detran.autorizacao": False
         }
+
+        # Parse saved REGISTRO events from document code lines (e.g. # [2026-10-08] REGISTRO: comprador.assinatura = true)
+        if self.raw_code:
+            for line in self.raw_code.splitlines():
+                line = line.strip()
+                if "REGISTRO:" in line:
+                    try:
+                        part = line.split("REGISTRO:", 1)[1].strip()
+                        if "=" in part:
+                            k, v = part.split("=", 1)
+                            k = k.strip()
+                            v_clean = v.strip().lower()
+                            if v_clean in ("true", "1", "sim", "cumprido"):
+                                self.context[k] = True
+                            elif v_clean in ("false", "0", "nao", "não", "pendente"):
+                                self.context[k] = False
+                            else:
+                                self.context[k] = v.strip()
+                    except Exception:
+                        pass
 
     def evaluate(self, current_runtime_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if current_runtime_state:
