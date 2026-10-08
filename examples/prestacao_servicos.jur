@@ -1,0 +1,41 @@
+CONTRATO PrestacaoServicosSoftware
+
+ESTADO = RASCUNHO
+
+PARTES: CONTRATANTE, CONTRATADA
+
+OBRIGAÇÃO entrega_software
+DEVEDOR: CONTRATADA
+CREDOR: CONTRATANTE
+VALOR: R$ 45.000
+VENCIMENTO: 15/11/2026
+
+SE não_pago até VENCIMENTO
+ENTÃO
+    APLICAR multa 10%
+    E juros 1% ao mês
+    SUSPENDER servicos
+
+TRANSIÇÃO ASSINADO:
+    REQUER contratante.assinatura
+    REQUER contratada.assinatura
+    ENTÃO
+        estado = EM_EXECUCAO
+
+TRANSIÇÃO HOMOLOGADO:
+    REQUER estado = EM_EXECUCAO
+    REQUER cliente.aprovacao_homologacao
+    ENTÃO
+        obrigação.entrega_software = CUMPRIDO
+        estado = AGUARDANDO_PAGAMENTO
+
+TRANSIÇÃO FINALIZADO:
+    REQUER estado = AGUARDANDO_PAGAMENTO
+    REQUER comprovante.pagamento
+    ENTÃO
+        estado = CONCLUIDO
+
+AUDITORIA DOCUMENTO:
+    Criado em: 08/10/2026
+    Criador: patrona.juridico
+    UUID: 8f94e21a-4c91-4e78-9b93-5c8e26711a14
