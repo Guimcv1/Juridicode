@@ -11,6 +11,28 @@ import threading
 
 REPO_ZIP_URL = "https://github.com/Guimcv1/Juridicode/archive/refs/heads/main.zip"
 
+import ctypes
+from ctypes import wintypes
+
+def broadcast_environment_change():
+    """Notifies all running Windows processes that the Environment/PATH has changed."""
+    try:
+        HWND_BROADCAST = 0xFFFF
+        WM_SETTINGCHANGE = 0x001A
+        SMTO_ABORTIFHUNG = 0x0002
+        result = wintypes.DWORD()
+        ctypes.windll.user32.SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_SETTINGCHANGE,
+            0,
+            "Environment",
+            SMTO_ABORTIFHUNG,
+            2000,
+            ctypes.byref(result)
+        )
+    except Exception:
+        pass
+
 def get_install_dir():
     local_app_data = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
     return os.path.join(local_app_data, "Juridicode")
@@ -29,6 +51,7 @@ def set_paths(paths_list):
     new_path = ";".join(dict.fromkeys(paths_list))
     winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
     winreg.CloseKey(key)
+    broadcast_environment_change()
 
 def is_installed(directory):
     paths = get_current_paths()
@@ -36,7 +59,8 @@ def is_installed(directory):
 
 def add_to_path(directory):
     paths = get_current_paths()
-    if not is_installed(directory):
+    norm_dir = os.path.normpath(directory)
+    if not any(os.path.normpath(p) == norm_dir for p in paths):
         paths.append(directory)
         set_paths(paths)
         return True
@@ -51,15 +75,45 @@ def remove_from_path(directory):
         return True
     return False
 
+def find_python_executable():
+    """Locates the real python.exe on the target machine."""
+    # 1. Try which/where python
+    for cmd in ["python.exe", "py.exe", "python"]:
+        path = shutil.which(cmd)
+        if path and not path.lower().endswith("installer_juridico.exe") and not path.lower().endswith("instalador_juridico.exe"):
+            return path
+            
+    # 2. Check current sys.executable if not frozen
+    if not getattr(sys, 'frozen', False):
+        return sys.executable
+
+    # 3. Check common python paths in LocalAppData
+    local_app = os.environ.get("LOCALAPPDATA", "")
+    py_base = os.path.join(local_app, "Programs", "Python")
+    if os.path.exists(py_base):
+        for sub in os.listdir(py_base):
+            cand = os.path.join(py_base, sub, "python.exe")
+            if os.path.exists(cand):
+                return cand
+
+    return "python"
+
 def install_system_shims(install_dir):
     """
     Installs juris.cmd directly into multiple well-known paths that Windows 
     and PowerShell already recognize immediately without needing a full reboot.
     """
     cli_path = os.path.join(install_dir, "cli.py")
-    cmd_content = f'@echo off\npython "{cli_path}" %*\n'
+    py_exe = find_python_executable()
     
-    # Candidate global directories
+    # CMD script that falls back gracefully
+    cmd_content = (
+        '@echo off\n'
+        f'set "PYTHON_EXE={py_exe}"\n'
+        'if not exist "%PYTHON_EXE%" set "PYTHON_EXE=python"\n'
+        f'"%PYTHON_EXE%" "{cli_path}" %*\n'
+    )
+    
     candidates = []
     
     # 1. LocalAppData/Microsoft/WindowsApps (default in Windows 10/11 PATH)
@@ -67,12 +121,12 @@ def install_system_shims(install_dir):
     if os.path.exists(win_apps):
         candidates.append(os.path.join(win_apps, "juris.cmd"))
         
-    # 2. Python Scripts folder for current python interpreter if available
-    py_dir = os.path.dirname(sys.executable)
-    py_scripts = os.path.join(py_dir, "Scripts")
-    if os.path.exists(py_scripts):
-        candidates.append(os.path.join(py_scripts, "juris.cmd"))
-    if os.path.exists(py_dir):
+    # 2. Python directory / Scripts folder
+    if py_exe != "python" and os.path.exists(py_exe):
+        py_dir = os.path.dirname(py_exe)
+        py_scripts = os.path.join(py_dir, "Scripts")
+        if os.path.exists(py_scripts):
+            candidates.append(os.path.join(py_scripts, "juris.cmd"))
         candidates.append(os.path.join(py_dir, "juris.cmd"))
 
     # 3. Inside the install_dir itself
@@ -87,12 +141,16 @@ def install_system_shims(install_dir):
             pass
 
 def remove_system_shims(install_dir):
+    py_exe = find_python_executable()
     candidates = [
         os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WindowsApps", "juris.cmd"),
-        os.path.join(os.path.dirname(sys.executable), "Scripts", "juris.cmd"),
-        os.path.join(os.path.dirname(sys.executable), "juris.cmd"),
         os.path.join(install_dir, "juris.cmd")
     ]
+    if py_exe != "python" and os.path.exists(py_exe):
+        py_dir = os.path.dirname(py_exe)
+        candidates.append(os.path.join(py_dir, "Scripts", "juris.cmd"))
+        candidates.append(os.path.join(py_dir, "juris.cmd"))
+
     for path in candidates:
         try:
             if os.path.exists(path):
@@ -179,13 +237,30 @@ class OnlineInstallerApp:
                             with zip_ref.open(member) as source, open(target_file, "wb") as target:
                                 shutil.copyfileobj(source, target)
                                 
-            if os.path.exists(temp_zip):
-                os.remove(temp_zip)
-
-            self.status_label.config(text="Instalando dependências Python...")
+            self.status_label.config(text="Verificando dependências Python...")
             req_file = os.path.join(self.install_dir, "requirements.txt")
-            if os.path.exists(req_file):
-                subprocess.run([sys.executable, "-m", "pip", "install", "-r", req_file], check=False)
+            
+            # Find python executable (sys.executable or 'python')
+            python_cmd = "python"
+            if not getattr(sys, 'frozen', False):
+                python_cmd = sys.executable
+
+            # Quick check if core dependencies are already present to avoid slow pip network resolver
+            need_install = False
+            try:
+                check_code = "import fastapi, uvicorn, pydantic, reportlab; print('OK')"
+                res = subprocess.run([python_cmd, "-c", check_code], capture_output=True, text=True, timeout=5)
+                if "OK" not in res.stdout:
+                    need_install = True
+            except Exception:
+                need_install = True
+
+            if need_install and os.path.exists(req_file):
+                self.status_label.config(text="Instalando pacotes necessários...")
+                subprocess.run(
+                    [python_cmd, "-m", "pip", "install", "-r", req_file, "--no-warn-script-location", "--disable-pip-version-check"],
+                    check=False
+                )
 
             self.status_label.config(text="Registrando comando 'juris' no sistema...")
             add_to_path(self.install_dir)

@@ -116,52 +116,64 @@ class Evaluator:
         applied_actions = []
         pending_requirements = []
 
-        # Evaluate transitions
+        # Multi-pass FSM resolution (e.g. ASSINADO: RASCUNHO -> ATIVO; PAGO: ATIVO -> FINALIZADO)
+        max_iterations = 10
+        iteration = 0
+        state_changed = True
+        
         evaluated_transitions = []
-        for trans in contract.transitions:
-            reqs_met = True
-            reqs_detail = []
-            for req in trans.requires:
-                val = self._eval_expr(req, current_state)
-                reqs_detail.append({"requirement": req, "valid": val})
-                if not val:
-                    reqs_met = False
-                    pending_requirements.append({"transition": trans.name, "requirement": req})
 
-            conds_met = True
-            conds_detail = []
-            for cond in trans.conditions:
-                c_val = self._eval_expr(cond["se"], current_state)
-                conds_detail.append({
-                    "condition": cond["se"],
-                    "is_valid": c_val,
-                    "status_label": "VÁLIDA (CONDIÇÃO ATENDIDA)" if c_val else "INATIVA (NÃO ATENDIDA)",
-                    "then": cond.get("entao", []),
-                    "else": cond.get("senao", [])
+        while state_changed and iteration < max_iterations:
+            state_changed = False
+            iteration += 1
+            evaluated_transitions = []
+
+            for trans in contract.transitions:
+                reqs_met = True
+                reqs_detail = []
+                for req in trans.requires:
+                    val = self._eval_expr(req, current_state)
+                    reqs_detail.append({"requirement": req, "valid": val})
+                    if not val:
+                        reqs_met = False
+                        pending_requirements.append({"transition": trans.name, "requirement": req})
+
+                conds_met = True
+                conds_detail = []
+                for cond in trans.conditions:
+                    c_val = self._eval_expr(cond["se"], current_state)
+                    conds_detail.append({
+                        "condition": cond["se"],
+                        "is_valid": c_val,
+                        "status_label": "VÁLIDA (CONDIÇÃO ATENDIDA)" if c_val else "INATIVA (NÃO ATENDIDA)",
+                        "then": cond.get("entao", []),
+                        "else": cond.get("senao", [])
+                    })
+                    if not c_val:
+                        conds_met = False
+
+                transition_active = reqs_met and conds_met and (len(trans.requires) + len(trans.conditions) > 0)
+
+                if transition_active:
+                    old_state = current_state
+                    for act in trans.actions:
+                        applied_actions.append(act)
+                        if act.get("type") == "EXEC":
+                            cmd = act.get("command", "")
+                            if "estado =" in cmd or "estado=" in cmd:
+                                new_s = cmd.split("=")[-1].strip().upper()
+                                if new_s != current_state:
+                                    current_state = new_s
+                                    state_changed = True
+                                    state_history.append({"from": old_state, "to": new_s, "reason": f"Transição {trans.name}"})
+
+                evaluated_transitions.append({
+                    "name": trans.name,
+                    "is_active": transition_active,
+                    "requires": reqs_detail,
+                    "conditions": conds_detail,
+                    "actions": trans.actions
                 })
-                if not c_val:
-                    conds_met = False
-
-            transition_active = reqs_met and conds_met and (len(trans.requires) + len(trans.conditions) > 0)
-
-            if transition_active:
-                old_state = current_state
-                for act in trans.actions:
-                    applied_actions.append(act)
-                    if act.get("type") == "EXEC":
-                        cmd = act.get("command", "")
-                        if "estado =" in cmd or "estado=" in cmd:
-                            new_s = cmd.split("=")[-1].strip().upper()
-                            current_state = new_s
-                            state_history.append({"from": old_state, "to": new_s, "reason": f"Transição {trans.name}"})
-
-            evaluated_transitions.append({
-                "name": trans.name,
-                "is_active": transition_active,
-                "requires": reqs_detail,
-                "conditions": conds_detail,
-                "actions": trans.actions
-            })
 
         # Obligations evaluation
         parsed_obligations = []
@@ -207,45 +219,41 @@ class Evaluator:
         expr = expr.strip()
         norm = expr.replace("==", "=")
         
-        if "estado =" in norm:
-            target = norm.split("=")[-1].strip().upper()
+        # Clean spacing around dots (e.g. 'comprador . assinatura' -> 'comprador.assinatura')
+        clean_key = re.sub(r'\s*\.\s*', '.', norm).strip()
+
+        if "estado =" in clean_key or "estado=" in clean_key:
+            target = clean_key.split("=")[-1].strip().upper()
             return current_state == target
-        if "estado !=" in norm:
-            target = norm.split("!=")[-1].strip().upper()
+        if "estado !=" in clean_key or "estado!=" in clean_key:
+            target = clean_key.split("!=")[-1].strip().upper()
             return current_state != target
 
         # Handle 'não_pago até VENCIMENTO' or 'nao_pago'
-        if "não_pago" in norm.lower() or "nao_pago" in norm.lower():
-            # If comprovante.pagamento is false, condition is true
+        if "não_pago" in clean_key.lower() or "nao_pago" in clean_key.lower():
             return not bool(self.context.get("comprovante.pagamento", False))
 
-        if "obrigacao.pagamento !=" in norm or "obrigação.pagamento !=" in norm:
-            target = norm.split("!=")[-1].strip().upper()
+        if "obrigacao.pagamento !=" in clean_key or "obrigação.pagamento !=" in clean_key:
+            target = clean_key.split("!=")[-1].strip().upper()
             pagamento_cumprido = bool(self.context.get("comprovante.pagamento", False))
             current_status = "CUMPRIDO" if pagamento_cumprido else "PENDENTE"
             return current_status != target
 
         # Direct booleans
-        if norm.lower() in ("true", "sim", "1", "cumprido", "ativo"):
+        if clean_key.lower() in ("true", "sim", "1", "cumprido", "ativo"):
             return True
-        if norm.lower() in ("false", "nao", "não", "0", "descumprido", "rascunho"):
+        if clean_key.lower() in ("false", "nao", "não", "0", "descumprido", "rascunho"):
             return False
 
-        # Key lookup in context
+        # Key lookup in context with clean_key and raw key
+        if clean_key in self.context:
+            return bool(self.context[clean_key])
         if norm in self.context:
             return bool(self.context[norm])
 
-        # Date comparisons e.g. data.hoje > vencimento
-        if ">" in expr or "<" in expr:
-            try:
-                if "data.hoje" in expr and "vencimento" in expr:
-                    return False
-            except Exception:
-                pass
-
         # If key is like 'comprador.assinatura'
-        if norm.endswith(".assinatura"):
-            return bool(self.context.get(norm, False))
+        if clean_key.endswith(".assinatura") or clean_key.endswith(".pagamento"):
+            return bool(self.context.get(clean_key, False))
 
         return False
 

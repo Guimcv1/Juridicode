@@ -59,6 +59,13 @@ def health_check():
 
 @app.get("/api/current-file")
 def get_current_file():
+    global CURRENT_FILE_CONTENT, CURRENT_FILE_PATH
+    if CURRENT_FILE_PATH and os.path.exists(CURRENT_FILE_PATH):
+        try:
+            with open(CURRENT_FILE_PATH, "r", encoding="utf-8") as f:
+                CURRENT_FILE_CONTENT = f.read()
+        except Exception:
+            pass
     return {"code": CURRENT_FILE_CONTENT, "path": CURRENT_FILE_PATH}
 
 
