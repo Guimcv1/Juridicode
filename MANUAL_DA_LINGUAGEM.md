@@ -136,4 +136,4 @@ cd frontend
 npm run dev
 ```
 
-Acesse em: `http://localhost:5173`
+Acesse em: `http://localhost:8000`

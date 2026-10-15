@@ -302,22 +302,31 @@ class OnlineInstallerApp:
 
     def start_download_and_install(self):
         python_exe, node_exe, npm_exe = describe_missing_tools()
-        missing = []
-        if (not python_exe or not os.path.isfile(python_exe)) and not has_python_install_source():
-            missing.append("Python")
-        if (not node_exe or not npm_exe) and not has_node_install_source():
-            missing.append("Node.js")
+        self.install_python = bool(python_exe and os.path.isfile(python_exe))
+        self.install_node = bool(node_exe and npm_exe)
 
-        if missing:
-            tools = " e ".join(missing)
-            if not messagebox.askyesno(
-                "Dependências necessárias",
-                f"{tools} não foi encontrado neste computador.\n\n"
-                "Deseja baixar e instalar os componentes oficiais agora?\n"
-                "A instalação do Python será apenas para o usuário atual. "
-                "O Node.js será instalado em C:\\node quando possível.",
-            ):
-                return
+        if not self.install_python:
+            self.install_python = messagebox.askyesno(
+                "Python não encontrado",
+                "O Python não está instalado neste computador.\n\n"
+                "Deseja baixar e instalar o Python oficial agora?\n"
+                "A instalação será feita apenas para o usuário atual.",
+            )
+        if not self.install_node:
+            self.install_node = messagebox.askyesno(
+                "Node.js não encontrado",
+                "O Node.js não está instalado neste computador.\n\n"
+                "Deseja baixar e instalar o Node.js oficial agora?\n"
+                "Quando possível, ele será instalado em C:\\node.",
+            )
+
+        if not self.install_python and not self.install_node:
+            messagebox.showwarning(
+                "Dependências não instaladas",
+                "Você escolheu não instalar Python nem Node.js. "
+                "A instalação do Juridico.Code foi cancelada.",
+            )
+            return
 
         self.progress.pack(pady=8)
         self.progress.start(10)
@@ -334,6 +343,11 @@ class OnlineInstallerApp:
         python_exe, _, _ = describe_missing_tools()
         if python_exe and os.path.isfile(python_exe):
             return python_exe
+        if not self.install_python:
+            raise RuntimeError(
+                "Python não está instalado e o download foi recusado. "
+                "Execute o instalador novamente e aceite a instalação do Python."
+            )
 
         installer_dir = r"C:\python"
         os.makedirs(installer_dir, exist_ok=True)
@@ -369,6 +383,11 @@ class OnlineInstallerApp:
         if node_exe and npm_exe:
             configure_node_path(node_exe)
             return node_exe, npm_exe
+        if not self.install_node:
+            raise RuntimeError(
+                "Node.js não está instalado e o download foi recusado. "
+                "Execute o instalador novamente e aceite a instalação do Node.js."
+            )
 
         os.makedirs(NODE_DIR, exist_ok=True)
         archive = os.path.join(NODE_DIR, "node-install.zip")

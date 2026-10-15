@@ -7,6 +7,7 @@ import re
 import uuid
 import datetime
 import hashlib
+from datetime import date
 from typing import Dict, Any, List, Optional
 from .lexer import Lexer
 from .parser import Parser
@@ -48,6 +49,22 @@ class Evaluator:
                                 self.context[k] = v.strip()
                     except Exception:
                         pass
+
+        for key, value in self._all_contract_variables().items():
+            normalized = str(value).strip().lower()
+            normalized_key = str(key).strip().lower()
+            if normalized in ("true", "1", "sim", "cumprido"):
+                self.context[normalized_key] = True
+            elif normalized in ("false", "0", "nao", "não", "pendente"):
+                self.context[normalized_key] = False
+            else:
+                self.context[normalized_key] = str(value).strip().strip('"').strip("'")
+
+    def _all_contract_variables(self) -> Dict[str, Any]:
+        variables = {}
+        for contract in self.program.contracts:
+            variables.update(contract.raw_variables)
+        return variables
 
     def evaluate(self, current_runtime_state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if current_runtime_state:
@@ -111,6 +128,9 @@ class Evaluator:
         }
 
     def _evaluate_contract(self, contract: ContractNode) -> Dict[str, Any]:
+        first_due_date = next((ob.vencimento for ob in contract.obligations if ob.vencimento), None)
+        if first_due_date:
+            self.context["vencimento"] = first_due_date
         state_history = [{"from": None, "to": contract.initial_state, "reason": "Criação Inicial"}]
         current_state = contract.initial_state
         applied_actions = []
@@ -178,6 +198,13 @@ class Evaluator:
         # Obligations evaluation
         parsed_obligations = []
         for ob in contract.obligations:
+            due_date = self._parse_date(ob.vencimento)
+            if due_date is None:
+                due_status = "SEM_DATA"
+            elif due_date < date.today():
+                due_status = "VENCIDA"
+            else:
+                due_status = "NO_PRAZO"
             conds_status = []
             for cond in ob.condicoes:
                 res = self._eval_expr(cond["se"], current_state)
@@ -195,6 +222,8 @@ class Evaluator:
                 "credor": ob.credor,
                 "valor": ob.valor,
                 "vencimento": ob.vencimento,
+                "due_status": due_status,
+                "due_date_iso": due_date.isoformat() if due_date else None,
                 "conditions": conds_status
             })
 
@@ -214,6 +243,74 @@ class Evaluator:
             "applied_actions": applied_actions,
             "pending_requirements": pending_requirements
         }
+
+    def _parse_date(self, value: Optional[str]) -> Optional[date]:
+        if not value:
+            return None
+        for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+            try:
+                return datetime.datetime.strptime(value.strip(), fmt).date()
+            except ValueError:
+                continue
+        return None
+
+    def _party_key(self, party: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "_", party.strip().lower()).strip("_")
+
+    def _validate_parties_and_documents(self, contract: ContractNode) -> List[Dict[str, Any]]:
+        errors = []
+        variables = {str(k).upper(): str(v).strip().strip('"').strip("'") for k, v in contract.raw_variables.items()}
+        registered = set()
+
+        for party in contract.partes:
+            key = self._party_key(party)
+            name = variables.get(f"{key.upper()}.NOME") or variables.get(f"{party.upper()}.NOME")
+            document = variables.get(f"{key.upper()}.DOCUMENTO") or variables.get(f"{party.upper()}.DOCUMENTO")
+            expires = (
+                variables.get(f"{key.upper()}.DOCUMENTO_VALIDADE")
+                or variables.get(f"{key.upper()}.VALIDADE_DOCUMENTO")
+                or variables.get(f"{party.upper()}.DOCUMENTO_VALIDADE")
+            )
+            if name and document:
+                registered.add(party.upper())
+            else:
+                missing = []
+                if not name:
+                    missing.append("NOME")
+                if not document:
+                    missing.append("DOCUMENTO")
+                errors.append({
+                    "severity": "HIGH",
+                    "type": "PARTE_NAO_CADASTRADA",
+                    "message": f"A parte '{party}' não está cadastrada. Informe {', '.join(missing)} nas variáveis do contrato.",
+                    "clause": "PARTES",
+                })
+
+            if expires:
+                expiry_date = self._parse_date(expires)
+                if not expiry_date:
+                    errors.append({
+                        "severity": "WARNING",
+                        "type": "VALIDADE_INVALIDA",
+                        "message": f"A validade do documento de '{party}' não possui uma data válida: '{expires}'. Use DD/MM/AAAA.",
+                        "clause": "PARTES",
+                    })
+                elif expiry_date < date.today():
+                    errors.append({
+                        "severity": "HIGH",
+                        "type": "DOCUMENTO_VENCIDO",
+                        "message": f"O documento de '{party}' venceu em {expires}.",
+                        "clause": "PARTES",
+                    })
+            else:
+                errors.append({
+                    "severity": "WARNING",
+                    "type": "VALIDADE_AUSENTE",
+                    "message": f"A parte '{party}' não possui validade de documento informada.",
+                    "clause": "PARTES",
+                })
+
+        return errors
 
     def _eval_expr(self, expr: str, current_state: str) -> bool:
         expr = expr.strip()
@@ -239,6 +336,22 @@ class Evaluator:
             current_status = "CUMPRIDO" if pagamento_cumprido else "PENDENTE"
             return current_status != target
 
+        date_match = re.match(r"^(data\.hoje|vencimento)\s*(>=|<=|>|<|=|!=)\s*(data\.hoje|vencimento)$", clean_key.lower())
+        if date_match:
+            left = self._parse_date(self.context.get(date_match.group(1)))
+            right = self._parse_date(self.context.get(date_match.group(3)))
+            if left is None or right is None:
+                return False
+            operator = date_match.group(2)
+            return {
+                ">": left > right,
+                "<": left < right,
+                ">=": left >= right,
+                "<=": left <= right,
+                "=": left == right,
+                "!=": left != right,
+            }[operator]
+
         # Direct booleans
         if clean_key.lower() in ("true", "sim", "1", "cumprido", "ativo"):
             return True
@@ -246,19 +359,37 @@ class Evaluator:
             return False
 
         # Key lookup in context with clean_key and raw key
-        if clean_key in self.context:
-            return bool(self.context[clean_key])
-        if norm in self.context:
-            return bool(self.context[norm])
+        context_key = clean_key.lower()
+        if context_key in self.context:
+            return bool(self.context[context_key])
+        if norm.lower() in self.context:
+            return bool(self.context[norm.lower()])
 
         # If key is like 'comprador.assinatura'
         if clean_key.endswith(".assinatura") or clean_key.endswith(".pagamento"):
-            return bool(self.context.get(clean_key, False))
+            return bool(self.context.get(context_key, False))
 
         return False
 
     def _check_contradictions(self, contract: ContractNode, evaluated: Dict[str, Any]) -> List[Dict[str, Any]]:
         contradictions = []
+        contradictions.extend(self._validate_parties_and_documents(contract))
+        valid_fields = {
+            "NOME", "DOCUMENTO", "DOCUMENTO_VALIDADE", "VALIDADE_DOCUMENTO",
+            "ASSINATURA", "EMAIL", "TELEFONE", "ENDERECO"
+        }
+        party_names = {party.strip().upper() for party in contract.partes}
+        for variable_name in contract.raw_variables:
+            key = str(variable_name).strip().upper()
+            if "." in key:
+                party, field = key.split(".", 1)
+                if party not in party_names or field not in valid_fields:
+                    contradictions.append({
+                        "severity": "WARNING",
+                        "type": "VARIAVEL_FORA_DO_ESCOPO",
+                        "message": f"Variável '{variable_name}' está fora do escopo ou usa um nome inválido. Use PARTE.CAMPO com uma parte declarada.",
+                        "clause": "VARIÁVEIS",
+                    })
 
         for ob in contract.obligations:
             if ob.devedor and ob.credor and ob.devedor.strip().upper() == ob.credor.strip().upper():

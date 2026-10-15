@@ -5,9 +5,10 @@ and exporting interpreted smart legal contracts directly to certified PDF.
 """
 
 import os
+from xml.sax.saxutils import escape
 from typing import List, Dict, Any, Optional
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
@@ -74,17 +75,25 @@ class PDFEngine:
 
         return results
 
-    def generate_legal_pdf(self, contract_data: Dict[str, Any], output_path: str) -> str:
+    def generate_legal_pdf(
+        self,
+        contract_data: Dict[str, Any],
+        output_path: str,
+        formatting: Optional[Dict[str, Any]] = None,
+        footer_image: Optional[str] = None,
+    ) -> str:
         """
         Generates a certified, official legal PDF document from the interpreted AST and state.
         """
+        formatting = formatting or {}
+        margins = formatting.get("margins", {})
         doc = SimpleDocTemplate(
             output_path,
             pagesize=letter,
-            rightMargin=40,
-            leftMargin=40,
-            topMargin=40,
-            bottomMargin=40
+            rightMargin=float(margins.get("right", 40)),
+            leftMargin=float(margins.get("left", 40)),
+            topMargin=float(margins.get("top", 40)),
+            bottomMargin=float(margins.get("bottom", 40))
         )
         styles = getSampleStyleSheet()
 
@@ -134,13 +143,13 @@ class PDFEngine:
         story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#2563EB'), spaceAfter=15))
 
         # Estado Atual
-        curr_state = contract_data.get('current_state', 'EM VIGOR')
+        curr_state = contract_data.get('current_state') or "NÃO INFORMADO"
         story.append(Paragraph(f"<b>STATUS DE EFICÁCIA (MÁQUINA DE ESTADOS):</b> <font color='#2563EB'><b>{curr_state}</b></font>", body_style))
         story.append(Spacer(1, 8))
 
         # Partes Envolvidas
         partes = contract_data.get('partes', [])
-        partes_txt = ", ".join(partes) if partes else "COMPRADOR, VENDEDOR"
+        partes_txt = ", ".join(partes) if partes else "NÃO INFORMADAS"
         story.append(Paragraph(f"<b>CLÁUSULA PRIMEIRA - DAS PARTES ENVOLVIDAS:</b>", h2_style))
         story.append(Paragraph(f"Figuram como partes integrantes deste instrumento jurídico formalmente verificado: <b>{partes_txt}</b>.", body_style))
         story.append(Spacer(1, 8))
@@ -149,10 +158,10 @@ class PDFEngine:
         story.append(Paragraph(f"<b>CLÁUSULA SEGUNDA - DAS OBRIGAÇÕES E VENCIMENTOS:</b>", h2_style))
         obs = contract_data.get('obligations', [])
         for i, ob in enumerate(obs, 1):
-            devedor = ob.get('devedor') or "COMPRADOR"
-            credor = ob.get('credor') or "VENDEDOR"
-            valor = ob.get('valor') or "R$ 500.000"
-            venc = ob.get('vencimento') or "10/12/2026"
+            devedor = ob.get('devedor') or "NÃO INFORMADO"
+            credor = ob.get('credor') or "NÃO INFORMADO"
+            valor = ob.get('valor') or "NÃO INFORMADO"
+            venc = ob.get('vencimento') or "NÃO INFORMADO"
             story.append(Paragraph(
                 f"<b>Subcláusula 2.{i} ({ob.get('title', 'Obrigação')}):</b> "
                 f"O devedor <b>{devedor}</b> obriga-se a pagar ao credor <b>{credor}</b> "
@@ -173,6 +182,14 @@ class PDFEngine:
             body_style
         ))
         story.append(Spacer(1, 15))
+
+        custom_clauses = formatting.get("custom_clauses", [])
+        for index, clause in enumerate(custom_clauses, 1):
+            title = escape(str(clause.get("title") or f"CLÁUSULA {index}"))
+            body = escape(str(clause.get("body") or "")).replace("\n", "<br/>")
+            if body:
+                story.append(Paragraph(f"<b>{title}</b>", h2_style))
+                story.append(Paragraph(body, body_style))
 
         # Tabela de Auditoria e Criptografia
         audit = contract_data.get('audit', {})
@@ -200,5 +217,17 @@ class PDFEngine:
         ]))
         story.append(t)
 
-        doc.build(story)
+        footer_path = (
+            os.path.join(self.storage_dir, os.path.basename(footer_image))
+            if footer_image else None
+        )
+        if footer_path and os.path.isfile(footer_path):
+            def draw_footer(canvas, document):
+                canvas.saveState()
+                footer = Image(footer_path, width=120, height=30)
+                footer.drawOn(canvas, document.leftMargin, 12)
+                canvas.restoreState()
+            doc.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
+        else:
+            doc.build(story)
         return output_path

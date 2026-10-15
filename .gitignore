@@ -52,6 +52,7 @@ yarn-error.log*
 Thumbs.db
 
 # Storage and temporary runtime data
+backend/storage/*.sqlite3
 backend/storage/*.pdf
 backend/storage/*.png
 backend/storage/*.jpg

@@ -138,8 +138,8 @@ class Parser:
 
             else:
                 # Check for key: value inside contract
-                if self.peek().type in (TokenType.COLON, TokenType.ASSIGN):
-                    k = self.advance().value
+                if self._is_assignment_start():
+                    k = self._consume_assignment_key()
                     self.advance() # consume : or =
                     v = self.consume_until_newline()
                     contract.raw_variables[str(k).upper()] = v
@@ -147,6 +147,23 @@ class Parser:
                     self.advance()
 
         return contract
+
+    def _is_assignment_start(self) -> bool:
+        offset = 1
+        while self.pos + offset < len(self.tokens):
+            token_type = self.tokens[self.pos + offset].type
+            if token_type in (TokenType.COLON, TokenType.ASSIGN):
+                return True
+            if token_type in (TokenType.NEWLINE, TokenType.EOF):
+                return False
+            offset += 1
+        return False
+
+    def _consume_assignment_key(self) -> str:
+        parts = []
+        while self.current_token().type not in (TokenType.COLON, TokenType.ASSIGN, TokenType.NEWLINE, TokenType.EOF):
+            parts.append(str(self.advance().value))
+        return "".join(parts).strip()
 
     def parse_obligation(self) -> ObligationNode:
         self.expect(TokenType.OBRIGACAO)
