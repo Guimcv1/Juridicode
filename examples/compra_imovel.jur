@@ -43,3 +43,9 @@ AUDITORIA DOCUMENTO:
     Último editor: advogado.numero2
     Histórico de Modificações: 235 adições, 12 deleções
     UUID: 123e4567-e89b-12d3-a456-426614174000
+
+# [2026-10-15] REGISTRO: comprador.assinatura = true
+# [2026-10-15] REGISTRO: comprovante.pagamento = true
+# [2026-10-15] REGISTRO: vendedor.assinatura = true
+# [2026-10-15] REGISTRO: comprovante.pagamento = false
+# [2026-10-15] REGISTRO: comprador.assinatura = false
