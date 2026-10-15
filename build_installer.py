@@ -14,6 +14,7 @@ def build():
         "--noconsole",
         "--onefile",
         "--name", "Instalador_Juridico",
+        "--add-data", "frontend\\dist;frontend\\dist",
         "installer_gui.py"
     ]
     
