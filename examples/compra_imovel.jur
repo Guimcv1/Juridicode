@@ -4,6 +4,13 @@ ESTADO = RASCUNHO
 
 PARTES: COMPRADOR, VENDEDOR
 
+COMPRADOR.NOME = "Comprador Principal"
+COMPRADOR.DOCUMENTO = "CPF 000.000.000-00"
+COMPRADOR.DOCUMENTO_VALIDADE = 31/12/2027
+VENDEDOR.NOME = "Vendedor Principal"
+VENDEDOR.DOCUMENTO = "CPF 111.111.111-11"
+VENDEDOR.DOCUMENTO_VALIDADE = 31/12/2027
+
 OBRIGAÇÃO pagamento
 DEVEDOR: COMPRADOR
 CREDOR: VENDEDOR
@@ -49,3 +56,46 @@ AUDITORIA DOCUMENTO:
 # [2026-10-15] REGISTRO: vendedor.assinatura = true
 # [2026-10-15] REGISTRO: comprovante.pagamento = false
 # [2026-10-15] REGISTRO: comprador.assinatura = false
+# [2026-10-15] REGISTRO: comprador.assinatura = true
+# [2026-10-15] REGISTRO: vendedor.assinatura = true
+# [2026-10-15] REGISTRO: comprovante.pagamento = true
+# [2026-10-15] REGISTRO: vendedor.assinatura = false
+# [2026-10-15] REGISTRO: comprador.assinatura = false
+# [2026-10-15] REGISTRO: comprovante.pagamento = false
+# [2026-10-15] REGISTRO: comprovante.pagamento = true
+# [2026-10-15] REGISTRO: comprovante.pagamento = false
+# [2026-10-15] REGISTRO: vendedor.assinatura = true
+# [2026-10-15] REGISTRO: vendedor.assinatura = false
+# [2026-10-15] REGISTRO: comprador.assinatura = true
+# [2026-10-15] REGISTRO: vendedor.assinatura = true
+# [2026-10-15] REGISTRO: comprovante.pagamento = true
+# [2026-10-15] REGISTRO: comprovante.pagamento = false
+# [2026-10-15] REGISTRO: vendedor.assinatura = false
+# [2026-10-15] REGISTRO: comprador.assinatura = false
+# [2026-10-15] REGISTRO: comprador.assinatura = true
+# [2026-10-15] REGISTRO: vendedor.assinatura = true
+# [2026-10-15] REGISTRO: comprovante.pagamento = true
+# [2026-10-15] REGISTRO: vendedor.assinatura = false
+# [2026-10-15] REGISTRO: comprador.assinatura = false
+# [2026-10-15] REGISTRO: comprovante.pagamento = false
+# [2026-10-15] REGISTRO: comprador.assinatura = true
+# [2026-10-15] REGISTRO: vendedor.assinatura = true
+# [2026-10-15] REGISTRO: comprovante.pagamento = true
+# [2026-10-15] REGISTRO: comprovante.pagamento = false
+# [2026-10-15] REGISTRO: vendedor.assinatura = false
+# [2026-10-15] REGISTRO: comprador.assinatura = false
+# [2026-10-15] REGISTRO: vendedor.assinatura = true
+# [2026-10-15] REGISTRO: comprovante.pagamento = true
+# [2026-10-15] REGISTRO: comprador.assinatura = true
+# [2026-10-15] REGISTRO: vendedor.assinatura = true
+# [2026-10-15] REGISTRO: comprovante.pagamento = true
+# [2026-10-15] REGISTRO: comprador.assinatura = false
+# [2026-10-15] REGISTRO: vendedor.assinatura = false
+# [2026-10-15] REGISTRO: comprovante.pagamento = false
+# [2026-10-15] REGISTRO: comprador.assinatura = true
+# [2026-10-15] REGISTRO: vendedor.assinatura = true
+# [2026-10-15] REGISTRO: vendedor.assinatura = false
+# [2026-10-15] REGISTRO: vendedor.assinatura = true
+# [2026-10-15] REGISTRO: comprador.assinatura = true
+# [2026-10-15] REGISTRO: vendedor.assinatura = true
+# [2026-10-15] REGISTRO: comprovante.pagamento = true
