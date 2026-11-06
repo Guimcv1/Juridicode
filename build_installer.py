@@ -15,6 +15,7 @@ def build():
         "--onefile",
         "--name", "Instalador_Juridico",
         "--add-data", "frontend\\dist;frontend\\dist",
+        "--add-data", "Contrato Padrão.pdf;.",
         "installer_gui.py"
     ]
     

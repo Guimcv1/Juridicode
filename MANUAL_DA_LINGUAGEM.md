@@ -23,6 +23,12 @@ ESTADO = RASCUNHO
 PARTES: COMPRADOR, VENDEDOR
 ```
 
+Quando o modelo PDF contém os rótulos `CONTRATANTE` e `CONTRATADO`, os nomes
+podem ser definidos no código `.jur` com `CONTRATANTE.NOME` e
+`CONTRATADO.NOME`. O gerador substitui automaticamente esses rótulos pelos
+nomes informados; se `PARTES` usar outros identificadores, a primeira e a
+segunda parte são usadas como contratante e contratado.
+
 ### 2.2 Declaração de Obrigações
 ```jur
 OBRIGAÇÃO pagamento
@@ -92,6 +98,91 @@ juris examples\compra_imovel.jur
 2. Sobe o backend FastAPI (se ainda não estiver rodando).
 3. Transmite o código do contrato para a sessão ativa.
 4. Abre automaticamente o navegador padrão na página visual do contrato com todos os dados e o dashboard interativo.
+
+### 3.3 Modelos jurídicos e geração por preenchimento
+
+Na aba **Modelos jurídicos**, envie um modelo em PDF, TXT, MD ou JUR, atribua um nome
+e informe o tipo do instrumento, como `Divórcio`, `Partilha de bens` ou `Locação`.
+O cadastro ocorre em duas etapas: clique em **Analisar arquivo** para extrair o texto,
+identificar o tipo e listar as variáveis obrigatórias na área de revisão. Depois de
+conferir a prévia e os campos, clique em **Adicionar modelo após revisão** para salvar
+o arquivo e o objeto no sistema.
+A análise também reconhece arquivos sem marcadores: rótulos como `Nome:`,
+`CPF:`, `Cidade:` e linhas com sublinhados ou pontilhados são convertidos em campos.
+Modelos PDF, DOCX, TXT, JUR e MD são aceitos.
+Para que os dados sejam preenchíveis, marque os campos no modelo com chaves duplas:
+
+```text
+REQUERENTE: {{nome_requerente}}
+REQUERIDO: {{nome_requerido}}
+COMARCA: {{comarca}}
+```
+
+Depois de selecionar o modelo no catálogo, o sistema exibe os campos para preenchimento,
+permite adicionar informações ou cláusulas e gera um novo PDF jurídico sem alterar o arquivo
+original.
+
+Um arquivo `.jur` pode indicar o modelo no cabeçalho:
+
+```jur
+MODELO: Divórcio consensual
+TIPO: Divórcio
+```
+
+O nome usado em `MODELO` deve ser o mesmo nome cadastrado na aba de modelos jurídicos.
+O sistema cadastra automaticamente o arquivo `Contrato Padrão.pdf` da raiz como modelo
+fallback. Se o usuário não selecionar outro modelo, esse arquivo será usado como base.
+Quando um modelo PDF próprio é enviado, ele fica armazenado e passa a ser a base daquele
+modelo; o PDF final preserva as páginas originais e acrescenta o conteúdo preenchido.
+As variáveis obrigatórias de um modelo enviado são lidas do próprio arquivo. Use
+`{{nome_completo}}`, `[[cpf]]` ou `${objeto_demanda}` para marcar uma variável;
+esses nomes são salvos no objeto do modelo e aparecem na área de preenchimento.
+O sistema não adiciona campos jurídicos heurísticos aos modelos enviados.
+No modelo padrão, os campos são identificados automaticamente pelo conteúdo do contrato,
+incluindo nome, nacionalidade, estado civil, profissão, CPF, identidade, endereço, CEP,
+objeto da demanda, honorários, parcelas, banco, agência e conta. O preenchimento é
+sobreposto nas páginas originais para manter a formatação do PDF.
+Na área de formatação é possível escolher a tipografia (Helvetica, Times New Roman ou
+Courier) e o tamanho da fonte do texto gerado e dos valores sobrepostos no PDF.
+
+As imagens institucionais (logo, rodapé ou assinatura visual) são enviadas pela aba
+**Contrato & Estilo**, armazenadas exclusivamente em `backend/storage/company_images/`
+e registradas na tabela `company_images` do SQLite. A referência da imagem é salva junto
+com o rascunho e é aplicada automaticamente na geração do PDF.
+
+## 6. Assinatura online e cláusulas específicas
+
+Na aba **Contrato & Estilo**, salve o rascunho, informe o nome e documento do signatário,
+confirme o consentimento e clique em **Assinar documento**. O sistema registra a assinatura
+no SQLite com data, e-mail opcional, hash SHA-256 do documento e um serial de certificado
+interno. O botão **Baixar PDF certificado** gera o documento com a tabela de evidências
+das assinaturas. Esse certificado interno não substitui, por si só, uma certificação ICP-Brasil
+ou outro requisito legal aplicável.
+
+No mesmo painel, use **Adicionar cláusula** para criar título e texto próprios ou
+**Remover cláusula** para retirar uma cláusula antes de salvar e gerar o PDF.
+
+## 7. Inicialização do backend e frontend
+
+A interface principal é uma tela única de preenchimento e exportação. Ela mostra o objeto
+do modelo, os campos já preenchidos, os campos pendentes e o botão de exportação. As abas
+**Criar modelo** e **Modelos cadastrados** ficam disponíveis no mesmo ambiente.
+
+Se `frontend/dist` existir, iniciar o backend já serve o frontend compilado em
+`http://localhost:8000`:
+
+```bash
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+Para desenvolvimento com atualização automática da interface, são necessários dois
+processos separados:
+
+```bash
+python -m uvicorn backend.main:app --reload
+cd frontend
+npm run dev
+```
 
 ---
 

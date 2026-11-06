@@ -62,7 +62,7 @@ AUDITORIA DOCUMENTO:
 
 export default function App() {
   const [code, setCode] = useState(DEFAULT_CODE);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('workspace');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
@@ -86,14 +86,27 @@ export default function App() {
   const [draftName, setDraftName] = useState('Meu contrato');
   const [formatting, setFormatting] = useState({
     margins: { top: 40, right: 40, bottom: 40, left: 40 },
-    custom_clauses: []
+    custom_clauses: [],
+    font_family: 'Helvetica',
+    font_size: 10
   });
   const [signer, setSigner] = useState({ name: '', document: '', email: '', consent: false });
   const [signatureMessage, setSignatureMessage] = useState('');
   const [footerImageName, setFooterImageName] = useState('');
+  const [companyImages, setCompanyImages] = useState([]);
   const [drafts, setDrafts] = useState([]);
   const [databaseInfo, setDatabaseInfo] = useState(null);
   const [previewOpen, setPreviewOpen] = useState(true);
+  const [legalTemplates, setLegalTemplates] = useState([]);
+  const [templateForm, setTemplateForm] = useState({ name: '', contractType: 'Divórcio', file: null });
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [templateFields, setTemplateFields] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [templateAdditions, setTemplateAdditions] = useState([]);
+  const [templateMessage, setTemplateMessage] = useState('');
+  const [uploadingTemplate, setUploadingTemplate] = useState(false);
+  const [templateFileKey, setTemplateFileKey] = useState(0);
+  const [templateAnalysis, setTemplateAnalysis] = useState(null);
 
   useEffect(() => {
     const fetchInitialFile = async () => {
@@ -114,6 +127,8 @@ export default function App() {
     fetchPdfList();
     fetchDrafts();
     fetchDatabaseInfo();
+    fetchCompanyImages();
+    fetchLegalTemplates();
   }, []);
 
   const runJuridicoCode = async (codeToRun = null, customState = null) => {
@@ -165,12 +180,176 @@ export default function App() {
     }
   };
 
+  const fetchLegalTemplates = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/templates`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Não foi possível carregar os modelos jurídicos.');
+      setLegalTemplates(data.templates || []);
+      if (!selectedTemplate) {
+        const defaultTemplate = (data.templates || []).find(template => template.is_default) || data.templates?.[0];
+        if (defaultTemplate) chooseTemplate(defaultTemplate.id);
+      }
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const analyzeLegalTemplate = async () => {
+    if (!templateForm.file) {
+      setError('Selecione o arquivo do modelo para analisar.');
+      return;
+    }
+    setUploadingTemplate(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append('file', templateForm.file);
+      const res = await fetch(`${API_BASE}/templates/analyze`, { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Não foi possível analisar o modelo.');
+      setTemplateAnalysis(data);
+      setTemplateMessage(data.message);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setUploadingTemplate(false);
+    }
+  };
+
+  const uploadLegalTemplate = async () => {
+    if (!templateForm.name.trim() || !templateForm.contractType.trim() || !templateForm.file) {
+      setError('Informe nome, tipo e arquivo do modelo.');
+      return;
+    }
+    if (!templateAnalysis) {
+      await analyzeLegalTemplate();
+      return;
+    }
+    setUploadingTemplate(true);
+    try {
+      const form = new FormData();
+      form.append('name', templateForm.name);
+      form.append('contract_type', templateForm.contractType);
+      form.append('file', templateForm.file);
+      const res = await fetch(`${API_BASE}/templates/upload`, { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Não foi possível cadastrar o modelo.');
+      setTemplateMessage(`Modelo "${data.name}" salvo no aplicativo com ${data.fields.length} campo(s). Agora ele está disponível para preenchimento e exportação.`);
+      setTemplateForm({ name: '', contractType: 'Divórcio', file: null });
+      setTemplateFileKey(value => value + 1);
+      setTemplateAnalysis(null);
+      await fetchLegalTemplates();
+      await chooseTemplate(data.id);
+      setActiveTab('workspace');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setUploadingTemplate(false);
+    }
+  };
+
+  const chooseTemplate = async (id) => {
+    try {
+      const res = await fetch(`${API_BASE}/templates/${id}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Não foi possível abrir o modelo.');
+      setSelectedTemplate(data);
+      const codeNames = {};
+      const assignments = [...code.matchAll(/^\s*([A-Za-zÀ-ÿ0-9_]+)\.NOME\s*=\s*["']([^"']+)["']/gim)];
+      assignments.forEach(([, party, name]) => {
+        const normalized = party.toLowerCase();
+        if (normalized === 'contratante' || normalized === 'contratado') codeNames[normalized] = name.trim();
+      });
+      const parties = code.match(/^\s*PARTES\s*:\s*(.+)$/im)?.[1]?.split(',').map(item => item.trim().toLowerCase()) || [];
+      if (!codeNames.contratante && parties[0]) {
+        const match = assignments.find(([, party]) => party.toLowerCase() === parties[0]);
+        if (match) codeNames.contratante = match[2].trim();
+      }
+      if (!codeNames.contratado && parties[1]) {
+        const match = assignments.find(([, party]) => party.toLowerCase() === parties[1]);
+        if (match) codeNames.contratado = match[2].trim();
+      }
+      setTemplateFields(Object.fromEntries((data.fields || []).map(field => [field, codeNames[field] || ''])));
+      setFieldErrors({});
+      setTemplateAdditions([]);
+      setTemplateMessage('');
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const generateFromTemplate = async () => {
+    if (!selectedTemplate) return;
+    const errors = {};
+    selectedTemplate.fields.forEach(field => {
+      const value = String(templateFields[field] || '').trim();
+      if (!value) errors[field] = 'Campo obrigatório';
+      if (field === 'cpf' && value && !/^[\d.\-/\s]+$/.test(value)) errors[field] = 'Informe um CPF válido';
+      if (field === 'cep' && value && !/^[\d.\-/\s]+$/.test(value)) errors[field] = 'Informe um CEP válido';
+      if (field === 'data_assinatura' && value && !/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value)) errors[field] = 'Use DD/MM/AAAA';
+    });
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setTemplateMessage('Revise os campos destacados antes de exportar.');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/templates/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          template_id: selectedTemplate.id,
+          fields: templateFields,
+          code,
+          additions: templateAdditions,
+          formatting
+        })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.detail?.missing_fields) {
+          setFieldErrors(Object.fromEntries(data.detail.missing_fields.map(field => [field, 'Campo obrigatório'])));
+        }
+        throw new Error(data.detail || 'Não foi possível gerar o PDF.');
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Documento_${selectedTemplate.name}.pdf`;
+      link.click();
+      window.URL.revokeObjectURL(url);
+      setTemplateMessage('PDF jurídico gerado com sucesso.');
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const clearTemplateFields = () => {
+    if (!selectedTemplate) return;
+    setTemplateFields(Object.fromEntries((selectedTemplate.fields || []).map(field => [field, ''])));
+    setFieldErrors({});
+    setTemplateMessage('Campos limpos. O modelo foi mantido.');
+  };
+
   const fetchDatabaseInfo = async () => {
     try {
       const res = await fetch(`${API_BASE}/database/summary`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Não foi possível carregar o banco.');
       setDatabaseInfo(data);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const fetchCompanyImages = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/company-images`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Não foi possível carregar as imagens da empresa.');
+      setCompanyImages(data.images || []);
     } catch (e) {
       setError(e.message);
     }
@@ -183,7 +362,7 @@ export default function App() {
     setDraftId(data.id);
     setDraftName(data.name);
     setCode(data.code);
-    setFormatting(data.formatting || { margins: { top: 40, right: 40, bottom: 40, left: 40 }, custom_clauses: [] });
+    setFormatting(data.formatting || { margins: { top: 40, right: 40, bottom: 40, left: 40 }, custom_clauses: [], font_family: 'Helvetica', font_size: 10 });
     setFooterImageName(data.formatting?.footer_image || '');
     setIsSaved(true);
     setActiveTab('editor');
@@ -277,7 +456,7 @@ export default function App() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Não foi possível registrar a assinatura.');
-    setSignatureMessage(`Assinatura registrada em ${new Date(data.signed_at).toLocaleString()} · hash ${data.document_sha256.slice(0, 16)}...`);
+    setSignatureMessage(`Certificado ${data.certificate_serial} emitido em ${new Date(data.signed_at).toLocaleString()} · hash ${data.document_sha256.slice(0, 16)}...`);
   };
 
   const addClause = () => {
@@ -292,11 +471,14 @@ export default function App() {
     if (!file) return;
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch(`${API_BASE}/pdf/footer-image`, { method: 'POST', body: form });
+    const res = await fetch(`${API_BASE}/company-images`, { method: 'POST', body: form });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Não foi possível enviar a imagem.');
     setFooterImageName(data.filename);
-    setFormatting(prev => ({ ...prev, footer_image: data.filename }));
+    const nextFormatting = { ...formatting, footer_image: data.filename };
+    setFormatting(nextFormatting);
+    await saveDraft(code, nextFormatting);
+    await fetchCompanyImages();
   };
 
   const updateClause = (index, field, value) => {
@@ -306,6 +488,37 @@ export default function App() {
         clauseIndex === index ? { ...clause, [field]: value } : clause
       )
     }));
+  };
+
+  const removeClause = (index) => {
+    setFormatting(prev => ({
+      ...prev,
+      custom_clauses: prev.custom_clauses.filter((_, clauseIndex) => clauseIndex !== index)
+    }));
+    setIsSaved(false);
+  };
+
+  const exportSignedPdf = async () => {
+    if (!draftId) {
+      setError('Salve o documento antes de gerar o PDF assinado.');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/contracts/${draftId}/signed-pdf`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || data.error || 'Não foi possível gerar o PDF assinado.');
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Contrato_Assinado_${draftName}.pdf`;
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e.message);
+    }
   };
 
   const exportPdfDocument = async () => {
@@ -371,10 +584,12 @@ export default function App() {
       <header style={{
         background: '#ffffff',
         borderBottom: '1px solid #e2e8f0',
-        padding: '12px 28px',
+        padding: '14px 28px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
+        gap: '20px',
+        flexWrap: 'wrap',
         position: 'sticky',
         top: 0,
         zIndex: 50,
@@ -402,8 +617,8 @@ export default function App() {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '6px', background: '#f1f5f9', padding: '4px', borderRadius: '6px' }}>
-          {['dashboard', 'editor', 'contract', 'models', 'database', 'pdf_database'].map(tab => (
+        <div style={{ display: 'flex', gap: '8px', background: '#f1f5f9', padding: '5px', borderRadius: '8px', flexWrap: 'wrap', justifyContent: 'center', flex: '0 1 auto' }}>
+          {['workspace', 'templates', 'models'].map(tab => (
             <button 
               key={tab}
               onClick={() => setActiveTab(tab)} 
@@ -411,18 +626,18 @@ export default function App() {
                 background: activeTab === tab ? '#ffffff' : 'transparent',
                 color: activeTab === tab ? '#0f172a' : '#64748b',
                 boxShadow: activeTab === tab ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
-                border: 'none', borderRadius: '4px', fontSize: '12px', padding: '6px 14px', fontWeight: '600', cursor: 'pointer'
+                border: 'none', borderRadius: '5px', fontSize: '12px', padding: '9px 16px', fontWeight: '600', cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: '1.2'
               }}
             >
-              {tab === 'dashboard' ? 'Métricas & Compliance' : tab === 'editor' ? 'IDE & Interpretador' : tab === 'contract' ? 'Contrato & Estilo' : tab === 'models' ? 'Modelos salvos' : tab === 'database' ? 'Banco de dados' : 'Precedentes (PDF)'}
+              {tab === 'workspace' ? 'Documento' : tab === 'templates' ? 'Criar modelo' : 'Modelos cadastrados'}
             </button>
           ))}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           <button 
             onClick={manualSave}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'transparent', border: '1px solid #cbd5e1', color: '#475569', fontSize: '12px', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '7px', background: 'transparent', border: '1px solid #cbd5e1', color: '#475569', fontSize: '12px', padding: '9px 14px', borderRadius: '5px', cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: '1.2' }}
           >
             <Save size={14} /> {isSaved ? 'Salvo' : 'Salvar Alterações'}
           </button>
@@ -430,7 +645,7 @@ export default function App() {
           <button 
             onClick={() => runJuridicoCode()} 
             disabled={loading}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#0f172a', color: '#ffffff', border: 'none', fontSize: '12px', padding: '6px 16px', borderRadius: '4px', fontWeight: '600', cursor: 'pointer' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '7px', background: '#0f172a', color: '#ffffff', border: 'none', fontSize: '12px', padding: '9px 16px', borderRadius: '5px', fontWeight: '600', cursor: 'pointer', whiteSpace: 'nowrap', lineHeight: '1.2' }}
           >
             {loading ? <RefreshCw className="spin" size={14} /> : <Play size={14} />}
             Compilar Código
@@ -490,6 +705,22 @@ export default function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '20px' }}>
                 <h3 style={{ marginTop: 0 }}>Formatação do PDF</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
+                  <label style={{ fontSize: '12px' }}>Tipografia
+                    <select value={formatting.font_family || 'Helvetica'}
+                      onChange={e => setFormatting(prev => ({ ...prev, font_family: e.target.value }))}
+                      style={{ display: 'block', width: '100%', padding: '7px', marginTop: '3px' }}>
+                      <option value="Helvetica">Helvetica</option>
+                      <option value="Times-Roman">Times New Roman</option>
+                      <option value="Courier">Courier</option>
+                    </select>
+                  </label>
+                  <label style={{ fontSize: '12px' }}>Tamanho da fonte
+                    <input type="number" min="6" max="24" step="1" value={formatting.font_size || 10}
+                      onChange={e => setFormatting(prev => ({ ...prev, font_size: Number(e.target.value) }))}
+                      style={{ display: 'block', width: '100%', boxSizing: 'border-box', padding: '7px', marginTop: '3px' }} />
+                  </label>
+                </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                   {Object.entries(formatting.margins).map(([side, value]) => (
                     <label key={side} style={{ fontSize: '12px' }}>{side}
@@ -506,7 +737,10 @@ export default function App() {
                       style={{ width: '100%', boxSizing: 'border-box', padding: '7px', marginBottom: '4px' }} />
                     <textarea value={clause.body} onChange={e => updateClause(index, 'body', e.target.value)}
                       placeholder="Escreva a cláusula do seu jeito..." style={{ width: '100%', boxSizing: 'border-box', minHeight: '65px', padding: '7px' }} />
-                  </div>
+                  <button onClick={() => removeClause(index)} style={{ marginTop: '4px', padding: '5px 8px', cursor: 'pointer' }}>
+                    Remover cláusula
+                  </button>
+                </div>
                 ))}
                 <button onClick={addClause} style={{ padding: '7px 10px', cursor: 'pointer' }}>+ Adicionar cláusula</button>
                 <label style={{ display: 'block', marginTop: '14px', fontSize: '12px' }}>
@@ -515,6 +749,12 @@ export default function App() {
                     style={{ display: 'block', marginTop: '5px' }} />
                 </label>
                 {footerImageName && <div style={{ fontSize: '11px', color: '#047857', marginTop: '5px' }}>Rodapé: {footerImageName}</div>}
+                <div style={{ marginTop: '12px', fontSize: '12px', color: '#475569' }}>
+                  <strong>Imagens da empresa salvas:</strong> {companyImages.length}
+                  {companyImages.slice(0, 3).map(image => (
+                    <div key={image.id} style={{ marginTop: '4px' }}>{image.original_name} ({image.size} bytes)</div>
+                  ))}
+                </div>
               </div>
 
               <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '20px' }}>
@@ -561,6 +801,10 @@ export default function App() {
                   style={{ padding: '9px 14px', background: '#059669', color: '#fff', border: 0, borderRadius: '4px', cursor: 'pointer' }}>
                   Assinar documento
                 </button>
+                <button onClick={exportSignedPdf}
+                  style={{ marginLeft: '8px', padding: '9px 14px', background: '#1d4ed8', color: '#fff', border: 0, borderRadius: '4px', cursor: 'pointer' }}>
+                  Baixar PDF certificado
+                </button>
                 <p style={{ fontSize: '11px', color: '#64748b' }}>O sistema registra identidade informada, consentimento, data e hash do conteúdo assinado.</p>
                 {signatureMessage && <div style={{ color: '#047857', fontSize: '12px' }}>{signatureMessage}</div>}
               </div>
@@ -568,15 +812,186 @@ export default function App() {
           </div>
         )}
 
+        {activeTab === 'workspace' && (
+          <div>
+            <div style={{ background: '#0f172a', color: '#fff', borderRadius: '10px', padding: '22px', marginBottom: '18px' }}>
+              <div style={{ fontSize: '12px', opacity: .7, textTransform: 'uppercase', letterSpacing: 1 }}>Documento jurídico</div>
+              <h1 style={{ margin: '6px 0', fontSize: '25px' }}>{selectedTemplate?.name || 'Selecione um modelo'}</h1>
+              <div style={{ opacity: .75, fontSize: '13px' }}>Objeto: {selectedTemplate?.contract_type || 'não definido'}</div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr 280px', gap: '16px', alignItems: 'start' }}>
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '18px' }}>
+                <h3 style={{ marginTop: 0 }}>Modelo base</h3>
+                <select value={selectedTemplate?.id || ''} onChange={e => chooseTemplate(e.target.value)}
+                  style={{ width: '100%', padding: '9px', marginBottom: '16px' }}>
+                  {legalTemplates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
+                </select>
+                <label style={{ fontSize: '12px', color: '#475569' }}>Nome do documento
+                  <input value={draftName} onChange={e => setDraftName(e.target.value)}
+                    style={{ display: 'block', width: '100%', boxSizing: 'border-box', padding: '8px', marginTop: '4px' }} />
+                </label>
+                <button onClick={() => saveDraft().catch(e => setError(e.message))}
+                  style={{ width: '100%', marginTop: '12px', padding: '10px', background: '#0f172a', color: '#fff', border: 0, borderRadius: '5px', cursor: 'pointer' }}>
+                  {isSaved ? 'Salvar no SQLite' : 'Salvar alterações'}
+                </button>
+              </div>
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '18px' }}>
+                <h3 style={{ marginTop: 0 }}>Campos do documento</h3>
+                {!selectedTemplate && <p style={{ color: '#64748b' }}>Escolha um modelo para identificar os campos.</p>}
+                {selectedTemplate?.fields?.map(field => {
+                  const filled = Boolean((templateFields[field] || '').trim());
+                  return (
+                    <label key={field} style={{ display: 'block', fontSize: '12px', marginBottom: '10px' }}>
+                      <span style={{ display: 'flex', justifyContent: 'space-between', color: filled ? '#047857' : '#b45309', fontWeight: 700 }}>
+                        {field} <span>{filled ? 'Preenchido' : 'A preencher'}</span>
+                      </span>
+                      <input value={templateFields[field] || ''} onChange={e => {
+                        setTemplateFields({ ...templateFields, [field]: e.target.value });
+                        setFieldErrors({ ...fieldErrors, [field]: '' });
+                      }}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '8px', marginTop: '3px', border: `1px solid ${fieldErrors[field] ? '#ef4444' : filled ? '#86efac' : '#fcd34d'}` }} />
+                      {fieldErrors[field] && <span style={{ display: 'block', color: '#dc2626', marginTop: '3px' }}>{fieldErrors[field]}</span>}
+                    </label>
+                  );
+                })}
+                <div style={{ marginTop: '15px', paddingTop: '12px', borderTop: '1px solid #e2e8f0', fontSize: '12px' }}>
+                  <strong>Resumo:</strong> {Object.values(templateFields).filter(value => String(value).trim()).length} preenchido(s) · {Object.values(templateFields).filter(value => !String(value).trim()).length} pendente(s)
+                </div>
+              </div>
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '18px' }}>
+                <h3 style={{ marginTop: 0 }}>Exportação</h3>
+                <p style={{ fontSize: '12px', color: '#64748b' }}>O PDF mantém o formato do modelo selecionado.</p>
+                <button onClick={generateFromTemplate} disabled={!selectedTemplate}
+                  style={{ width: '100%', padding: '11px', background: '#2563eb', color: '#fff', border: 0, borderRadius: '5px', cursor: 'pointer', fontWeight: 700 }}>
+                  Exportar documento PDF
+                </button>
+                <button onClick={clearTemplateFields} disabled={!selectedTemplate}
+                  style={{ width: '100%', marginTop: '8px', padding: '10px', background: '#fff', color: '#b91c1c', border: '1px solid #fca5a5', borderRadius: '5px', cursor: 'pointer', fontWeight: 600 }}>
+                  Limpar campos
+                </button>
+                <h4 style={{ marginBottom: '8px' }}>Cláusulas específicas</h4>
+                {formatting.custom_clauses.map((clause, index) => (
+                  <div key={index} style={{ fontSize: '12px', borderBottom: '1px solid #e2e8f0', padding: '7px 0' }}>
+                    <strong>{clause.title || `Cláusula ${index + 1}`}</strong>
+                    <div style={{ color: '#64748b' }}>{clause.body}</div>
+                  </div>
+                ))}
+                <button onClick={() => setActiveTab('templates')} style={{ marginTop: '10px', width: '100%', padding: '8px', cursor: 'pointer' }}>Gerenciar cláusulas</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'templates' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr', gap: '20px' }}>
+            <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '22px' }}>
+              <h2 style={{ marginTop: 0 }}>Cadastrar modelo</h2>
+              <p style={{ color: '#64748b', fontSize: '13px' }}>
+                Selecione o arquivo. O sistema analisa o conteúdo, identifica as variáveis e só depois salva o modelo.
+              </p>
+              <input value={templateForm.name} onChange={e => setTemplateForm({ ...templateForm, name: e.target.value })}
+                placeholder="Nome do modelo (ex.: Divórcio consensual)"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '9px', marginBottom: '8px' }} />
+              <input value={templateForm.contractType} onChange={e => setTemplateForm({ ...templateForm, contractType: e.target.value })}
+                placeholder="Tipo (ex.: Divórcio, Partilha, Locação)"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '9px', marginBottom: '8px' }} />
+              <input key={templateFileKey} type="file" accept=".pdf,.docx,.txt,.jur,.md"
+                onChange={e => setTemplateForm({ ...templateForm, file: e.target.files?.[0] || null })}
+                style={{ width: '100%', marginBottom: '10px' }} />
+              <button onClick={uploadLegalTemplate} disabled={uploadingTemplate || !templateForm.file}
+                style={{ padding: '9px 14px', background: '#0f172a', color: '#fff', border: 0, borderRadius: '4px', cursor: 'pointer' }}>
+                {uploadingTemplate ? 'Analisando...' : templateAnalysis ? 'Adicionar modelo após revisão' : 'Analisar arquivo'}
+              </button>
+              {templateAnalysis && (
+                <button onClick={() => { setTemplateAnalysis(null); setTemplateMessage('Análise descartada.'); }}
+                  style={{ marginLeft: '8px', padding: '9px 14px', background: '#fff', color: '#b91c1c', border: '1px solid #fca5a5', borderRadius: '4px', cursor: 'pointer' }}>
+                  Refazer análise
+                </button>
+              )}
+              {templateMessage && <p style={{ color: '#047857', fontSize: '12px' }}>{templateMessage}</p>}
+              <h3>Modelos disponíveis</h3>
+              {legalTemplates.length === 0 && <p style={{ color: '#64748b', fontSize: '13px' }}>Nenhum modelo cadastrado.</p>}
+              {legalTemplates.map(template => (
+                <button key={template.id} onClick={() => chooseTemplate(template.id).then(() => setActiveTab('workspace'))}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', background: selectedTemplate?.id === template.id ? '#eff6ff' : '#fff', border: '1px solid #e2e8f0', borderRadius: '5px', padding: '10px', marginBottom: '7px', cursor: 'pointer' }}>
+                  <strong>{template.name}</strong>
+                  <div style={{ color: '#64748b', fontSize: '11px' }}>{template.contract_type} · {template.fields.length} campo(s)</div>
+                </button>
+              ))}
+            </div>
+            <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '22px' }}>
+              {templateAnalysis ? (
+                <>
+                  <h2 style={{ marginTop: 0 }}>Revisão do arquivo analisado</h2>
+                  <p style={{ color: '#64748b', fontSize: '13px' }}>
+                    Arquivo: <strong>{templateAnalysis.filename}</strong> · Tipo detectado: <strong>{templateAnalysis.file_type}</strong>
+                  </p>
+                  <h3>Variáveis obrigatórias identificadas ({templateAnalysis.fields.length})</h3>
+                  {templateAnalysis.fields.length ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '18px' }}>
+                      {templateAnalysis.fields.map(field => (
+                        <span key={field} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', borderRadius: '5px', padding: '6px 9px', fontSize: '12px' }}>{field}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ color: '#92400e', background: '#fffbeb', padding: '10px', borderRadius: '5px', fontSize: '12px' }}>
+                      Nenhuma variável foi identificada. Revise o arquivo antes de salvar.
+                    </p>
+                  )}
+                  <h3>Prévia extraída do arquivo</h3>
+                  <pre style={{ marginTop: '8px', padding: '14px', background: '#f8fafc', whiteSpace: 'pre-wrap', fontSize: '12px', maxHeight: '390px', overflow: 'auto' }}>{templateAnalysis.preview}</pre>
+                </>
+              ) : !selectedTemplate ? (
+                <div style={{ color: '#64748b' }}>Selecione um modelo para preencher e gerar o documento.</div>
+              ) : (
+                <>
+                  <h2 style={{ marginTop: 0 }}>Variáveis do modelo: {selectedTemplate.name}</h2>
+                  <p style={{ color: '#64748b', fontSize: '13px' }}>
+                    Variáveis obrigatórias identificadas e salvas neste objeto. Use <code>{'{{nome_da_variavel}}'}</code> no arquivo enviado para criar um campo.
+                  </p>
+                  {selectedTemplate.fields.length === 0 && (
+                    <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', color: '#92400e', borderRadius: '6px', padding: '10px', marginBottom: '12px', fontSize: '12px' }}>
+                      Este modelo não possui variáveis identificáveis. Edite o arquivo e marque os campos com <code>{'{{campo}}'}</code>, depois cadastre-o novamente.
+                    </div>
+                  )}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    {selectedTemplate.fields.map(field => (
+                      <label key={field} style={{ fontSize: '12px' }}>
+                        {field}
+                        <input value={templateFields[field] || ''} onChange={e => setTemplateFields({ ...templateFields, [field]: e.target.value })}
+                          placeholder={`Informe ${field}`}
+                          style={{ display: 'block', width: '100%', boxSizing: 'border-box', padding: '8px', marginTop: '3px' }} />
+                      </label>
+                    ))}
+                  </div>
+                  <h3>Informações adicionais</h3>
+                  {templateAdditions.map((addition, index) => (
+                    <div key={index} style={{ display: 'grid', gridTemplateColumns: '180px 1fr auto', gap: '6px', marginBottom: '7px' }}>
+                      <input value={addition.title} placeholder="Título" onChange={e => setTemplateAdditions(templateAdditions.map((item, i) => i === index ? { ...item, title: e.target.value } : item))} />
+                      <input value={addition.body} placeholder="Texto da informação ou cláusula" onChange={e => setTemplateAdditions(templateAdditions.map((item, i) => i === index ? { ...item, body: e.target.value } : item))} />
+                      <button onClick={() => setTemplateAdditions(templateAdditions.filter((_, i) => i !== index))}>Remover</button>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
+                    <button onClick={() => setTemplateAdditions([...templateAdditions, { title: '', body: '' }])} style={{ padding: '9px 12px', cursor: 'pointer' }}>+ Adicionar informação</button>
+                    <button onClick={generateFromTemplate} style={{ padding: '9px 14px', background: '#2563eb', color: '#fff', border: 0, borderRadius: '4px', cursor: 'pointer' }}><Download size={14} style={{ verticalAlign: 'middle' }} /> Gerar PDF jurídico</button>
+                  </div>
+                  <pre style={{ marginTop: '20px', padding: '14px', background: '#f8fafc', whiteSpace: 'pre-wrap', fontSize: '12px', maxHeight: '360px', overflow: 'auto' }}>{selectedTemplate.content}</pre>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'models' && (
           <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '22px' }}>
-            <h2 style={{ marginTop: 0 }}>Modelos e textos salvos</h2>
-            <p style={{ color: '#64748b', fontSize: '13px' }}>Cada modelo contém o texto .jur e a configuração visual salva.</p>
-            {drafts.length === 0 && <p>Nenhum modelo salvo ainda.</p>}
-            {drafts.map(draft => (
-              <div key={draft.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderBottom: '1px solid #e2e8f0' }}>
-                <div><strong>{draft.name}</strong><div style={{ color: '#64748b', fontSize: '11px' }}>Atualizado: {new Date(draft.updated_at).toLocaleString()}</div></div>
-                <button onClick={() => loadDraft(draft.id).catch(e => setError(e.message))} style={{ padding: '7px 12px', cursor: 'pointer' }}>Abrir e editar</button>
+            <h2 style={{ marginTop: 0 }}>Modelos cadastrados</h2>
+            <p style={{ color: '#64748b', fontSize: '13px' }}>Cada arquivo salvo é classificado pelo objeto jurídico informado no cadastro.</p>
+            {legalTemplates.length === 0 && <p>Nenhum modelo cadastrado ainda.</p>}
+            {legalTemplates.map(template => (
+              <div key={template.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', borderBottom: '1px solid #e2e8f0' }}>
+                <div><strong>{template.name}</strong><div style={{ color: '#64748b', fontSize: '11px' }}>Objeto: {template.contract_type} · Campos: {template.fields.length}</div></div>
+                <button onClick={() => chooseTemplate(template.id).then(() => setActiveTab('workspace'))} style={{ padding: '7px 12px', cursor: 'pointer' }}>Usar modelo</button>
               </div>
             ))}
           </div>

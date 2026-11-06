@@ -5,10 +5,12 @@ and exporting interpreted smart legal contracts directly to certified PDF.
 """
 
 import os
+import tempfile
 from xml.sax.saxutils import escape
 from typing import List, Dict, Any, Optional
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image
+from reportlab.pdfgen import canvas
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
@@ -74,6 +76,138 @@ class PDFEngine:
                 })
 
         return results
+
+    def generate_template_pdf(
+        self,
+        title: str,
+        contract_type: str,
+        content: str,
+        output_path: str,
+        formatting: Optional[Dict[str, Any]] = None,
+        source_pdf: Optional[str] = None,
+        field_replacements: Optional[Dict[str, str]] = None,
+        field_targets: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Render a filled template, retaining an uploaded PDF as the document base."""
+        formatting = formatting or {}
+        margins = formatting.get("margins", {})
+        render_path = output_path
+        if source_pdf and source_pdf.lower().endswith(".pdf") and os.path.exists(source_pdf):
+            with tempfile.NamedTemporaryFile(prefix="juridicode_filled_", suffix=".pdf", delete=False) as temp_file:
+                render_path = temp_file.name
+        doc = SimpleDocTemplate(
+            render_path,
+            pagesize=letter,
+            rightMargin=float(margins.get("right", 54)),
+            leftMargin=float(margins.get("left", 54)),
+            topMargin=float(margins.get("top", 54)),
+            bottomMargin=float(margins.get("bottom", 54)),
+        )
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            "TemplateTitle", parent=styles["Heading1"], fontSize=17,
+            leading=21, alignment=1, textColor=colors.HexColor("#0F172A"),
+            spaceAfter=8,
+        )
+        type_style = ParagraphStyle(
+            "TemplateType", parent=styles["Normal"], fontSize=9,
+            leading=12, alignment=1, textColor=colors.HexColor("#64748B"),
+            spaceAfter=16,
+        )
+        body_style = ParagraphStyle(
+            "TemplateBody", parent=styles["Normal"],
+            fontName=(formatting.get("font_family", "Helvetica") if formatting.get("font_family") in {"Helvetica", "Times-Roman", "Courier"} else "Helvetica"),
+            fontSize=max(6, min(24, float(formatting.get("font_size", 10)))),
+            leading=15, textColor=colors.HexColor("#1E293B"), spaceAfter=8,
+        )
+        story = [
+            Paragraph(escape(title), title_style),
+            Paragraph(f"TIPO DE INSTRUMENTO: {escape(contract_type)}", type_style),
+            HRFlowable(width="100%", thickness=1.2, color=colors.HexColor("#2563EB"), spaceAfter=14),
+        ]
+        for paragraph in content.split("\n"):
+            text = escape(paragraph.strip()).replace("  ", "&nbsp;&nbsp;")
+            if text:
+                story.append(Paragraph(text, body_style))
+            else:
+                story.append(Spacer(1, 5))
+        doc.build(story)
+        if render_path != output_path:
+            try:
+                from pypdf import PdfReader, PdfWriter
+                source_reader = PdfReader(source_pdf)
+                if field_replacements:
+                    overlay_path = tempfile.mktemp(prefix="juridicode_overlay_", suffix=".pdf")
+                    self._create_field_overlay(
+                        source_pdf,
+                        overlay_path,
+                        field_replacements,
+                        field_targets or {},
+                        formatting,
+                    )
+                    overlay_reader = PdfReader(overlay_path)
+                    for page, overlay in zip(source_reader.pages, overlay_reader.pages):
+                        page.merge_page(overlay)
+                    writer = PdfWriter()
+                    for page in source_reader.pages:
+                        writer.add_page(page)
+                    with open(output_path, "wb") as output_file:
+                        writer.write(output_file)
+                    os.remove(overlay_path)
+                else:
+                    writer = PdfWriter()
+                    for page in source_reader.pages:
+                        writer.add_page(page)
+                    with open(output_path, "wb") as output_file:
+                        writer.write(output_file)
+            finally:
+                if os.path.exists(render_path):
+                    os.remove(render_path)
+        return output_path
+
+    def _create_field_overlay(
+        self,
+        source_pdf: str,
+        overlay_path: str,
+        replacements: Dict[str, str],
+        field_targets: Dict[str, str],
+        formatting: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        import pdfplumber
+
+        source = pdfplumber.open(source_pdf)
+        first_page = source.pages[0]
+        page_width = float(first_page.width)
+        page_height = float(first_page.height)
+        pdf = canvas.Canvas(overlay_path, pagesize=(page_width, page_height))
+        for page in source.pages:
+            words = page.extract_words() or []
+            for field, value in replacements.items():
+                target = field_targets.get(field, "{{" + field + "}}")
+                target_words = target.lower().split()
+                for index in range(len(words) - len(target_words) + 1):
+                    candidate = [str(words[index + offset].get("text", "")) for offset in range(len(target_words))]
+                    if " ".join(candidate).lower() != " ".join(target_words):
+                        continue
+                    selected = words[index:index + len(target_words)]
+                    x0 = min(float(word["x0"]) for word in selected)
+                    x1 = max(float(word["x1"]) for word in selected)
+                    top = min(float(word["top"]) for word in selected)
+                    bottom = max(float(word["bottom"]) for word in selected)
+                    y = page_height - bottom
+                    pdf.setFillColorRGB(1, 1, 1)
+                    pdf.rect(x0 - 1, y - 2, max(x1 - x0, 80) + 2, bottom - top + 5, fill=1, stroke=0)
+                    pdf.setFillColorRGB(0, 0, 0)
+                    font_name = (formatting or {}).get("font_family", "Helvetica")
+                    if font_name not in {"Helvetica", "Times-Roman", "Courier"}:
+                        font_name = "Helvetica"
+                    font_size = max(6, min(24, float((formatting or {}).get("font_size", 9))))
+                    pdf.setFont(font_name, font_size)
+                    pdf.drawString(x0, y + 1, str(value))
+                    break
+            pdf.showPage()
+        pdf.save()
+        source.close()
 
     def generate_legal_pdf(
         self,
@@ -191,6 +325,34 @@ class PDFEngine:
                 story.append(Paragraph(f"<b>{title}</b>", h2_style))
                 story.append(Paragraph(body, body_style))
 
+        signatures = contract_data.get("signatures", [])
+        if signatures:
+            story.append(Paragraph("<b>CERTIFICADO DE ASSINATURAS ELETRÔNICAS</b>", h2_style))
+            story.append(Paragraph(
+                "As assinaturas abaixo foram registradas no Juridico.Code com consentimento "
+                "expresso, data, identificador do certificado e hash SHA-256 do conteúdo.",
+                body_style,
+            ))
+            signature_data = [["Signatário", "Documento", "Data", "Certificado", "Hash"]]
+            for signature in signatures:
+                signature_data.append([
+                    str(signature.get("signer_name", "")),
+                    str(signature.get("signer_document", "")),
+                    str(signature.get("signed_at", "")),
+                    str(signature.get("certificate_serial", "")),
+                    str(signature.get("document_sha256", ""))[:18] + "...",
+                ])
+            signature_table = Table(signature_data, colWidths=[100, 90, 90, 105, 80])
+            signature_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E2E8F0")),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.append(signature_table)
+
         # Tabela de Auditoria e Criptografia
         audit = contract_data.get('audit', {})
         audit_data = [
@@ -218,9 +380,12 @@ class PDFEngine:
         story.append(t)
 
         footer_path = (
-            os.path.join(self.storage_dir, os.path.basename(footer_image))
+            os.path.join(self.storage_dir, "company_images", os.path.basename(footer_image))
             if footer_image else None
         )
+        if footer_path and not os.path.isfile(footer_path):
+            legacy_path = os.path.join(self.storage_dir, os.path.basename(footer_image))
+            footer_path = legacy_path if os.path.isfile(legacy_path) else None
         if footer_path and os.path.isfile(footer_path):
             def draw_footer(canvas, document):
                 canvas.saveState()

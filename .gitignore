@@ -57,6 +57,7 @@ backend/storage/*.pdf
 backend/storage/*.png
 backend/storage/*.jpg
 backend/storage/*.json
+backend/storage/company_images/
 !backend/storage/.gitkeep
 
 # Environment variables & local configs
