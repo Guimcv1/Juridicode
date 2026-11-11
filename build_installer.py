@@ -1,4 +1,5 @@
 import os
+import sys
 import subprocess
 
 def build():
@@ -10,7 +11,8 @@ def build():
         shutil.rmtree("build")
         
     cmd = [
-        "pyinstaller",
+        sys.executable,
+        "-m", "PyInstaller",
         "--noconsole",
         "--onefile",
         "--name", "Instalador_Juridico",

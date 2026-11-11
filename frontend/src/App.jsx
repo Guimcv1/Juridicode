@@ -5,7 +5,9 @@ import {
   Sparkles, BookOpen, Layers, Terminal, CheckCircle, XCircle, Zap, Save
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = window.location.origin.includes('5173') || window.location.origin.includes('3000') 
+  ? 'http://localhost:8000/api' 
+  : `${window.location.origin}/api`;
 
 const DEFAULT_CODE = `CONTRATO CompraImovel
 

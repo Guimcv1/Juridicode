@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+import socket
 import webbrowser
 import threading
 import urllib.request
@@ -14,10 +15,21 @@ from backend.engine.lexer import Lexer
 from backend.engine.parser import Parser
 from backend.engine.evaluator import Evaluator
 
-def start_backend_server():
+def find_available_port(default_port=8000, max_attempts=50):
+    for port in range(default_port, default_port + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('127.0.0.1', port))
+                s.listen(1)
+                return port
+        except OSError:
+            continue
+    return default_port
+
+def start_backend_server(port):
     import uvicorn
     from backend.main import app
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="error")
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="error")
 
 def main():
     if len(sys.argv) < 2:
@@ -65,23 +77,26 @@ def main():
     except Exception as e:
         print(f"[ERRO NA COMPILAÇÃO] {e}")
 
-    # 2. Check if server is already running, else start in background thread
+    # 2. Check if server is already running, else start on an available port
+    target_port = 8000
     server_running = False
     try:
         resp = urllib.request.urlopen("http://127.0.0.1:8000/api/health", timeout=1)
         if resp.getcode() == 200:
             server_running = True
+            target_port = 8000
     except Exception:
         server_running = False
 
     if not server_running:
-        t = threading.Thread(target=start_backend_server, daemon=True)
+        target_port = find_available_port(8000)
+        t = threading.Thread(target=start_backend_server, args=(target_port,), daemon=True)
         t.start()
         # wait for server to boot
         for _ in range(10):
             time.sleep(0.5)
             try:
-                if urllib.request.urlopen("http://127.0.0.1:8000/api/health", timeout=1).getcode() == 200:
+                if urllib.request.urlopen(f"http://127.0.0.1:{target_port}/api/health", timeout=1).getcode() == 200:
                     server_running = True
                     break
             except Exception:
@@ -92,7 +107,7 @@ def main():
         abs_path = os.path.abspath(file_path)
         req_data = json.dumps({"code": code_content, "path": abs_path}).encode("utf-8")
         req = urllib.request.Request(
-            "http://127.0.0.1:8000/api/current-file",
+            f"http://127.0.0.1:{target_port}/api/current-file",
             data=req_data,
             headers={"Content-Type": "application/json"}
         )
@@ -101,7 +116,7 @@ def main():
         pass
 
     # 4. Open browser
-    url = "http://127.0.0.1:8000"
+    url = f"http://127.0.0.1:{target_port}"
     print(f"\n[INFO] Abrindo dashboard visual em: {url}")
     print("[INFO] Pressione Ctrl+C para encerrar o ambiente.\n")
     webbrowser.open(url)

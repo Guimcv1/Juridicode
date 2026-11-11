@@ -380,10 +380,23 @@ def export_contract_pdf(req: PDFExportRequest):
 # Serve compiled frontend if exists
 FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
 if os.path.exists(FRONTEND_DIST):
-    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="static")
+    assets_dir = os.path.join(FRONTEND_DIST, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="static")
+
+    @app.get("/")
+    async def serve_root():
+        index_file = os.path.join(FRONTEND_DIST, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+        raise HTTPException(status_code=404, detail="index.html não encontrado")
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
+        # Allow static files directly in dist (like favicon.svg, icons.svg)
+        target_file = os.path.join(FRONTEND_DIST, full_path)
+        if os.path.isfile(target_file):
+            return FileResponse(target_file)
         if full_path.startswith("api"):
             raise HTTPException(status_code=404, detail="Endpoint API não encontrado")
         index_file = os.path.join(FRONTEND_DIST, "index.html")
