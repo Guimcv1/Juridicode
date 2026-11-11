@@ -30,6 +30,7 @@ Instrumentos contratuais tradicionais em formato de texto estático são propens
 - [Início Rápido](#-início-rápido)
 - [Como Funciona](#-como-funciona)
 - [Recursos e Capacidades](#-recursos-e-capacidades)
+- [Interface e Demonstração Visual](#-interface-e-demonstração-visual)
 - [Casos de Uso e Demonstrações](#-casos-de-uso-e-demonstrações)
 - [Perguntas Frequentes (FAQ)](#-perguntas-frequentes-faq)
 - [Documentação](#-documentação)
@@ -83,6 +84,40 @@ juris examples/compra_imovel.jur
 | **Serviços Backend & Compilação** | API REST para compilação, validação de cláusulas e geração de PDF assinado/certificado | FastAPI, Uvicorn, ReportLab |
 | **CLI Global (`juris`)** | Comando de terminal para validação estática e abertura automática no navegador | Windows PATH ou shell configurado |
 | **Dashboard e Visualizador Web** | Interface interativa com simulador de transições, REPL e painel de status do contrato | React, Vite, Node.js 18+ |
+
+---
+
+## 🖼️ Interface e Demonstração Visual
+
+Abaixo estão capturas reais do fluxo de funcionamento do ecossistema **Juridico.Code**:
+
+### 1. Inicialização no Terminal via CLI
+Execução do comando global `juris` com validação de tokens, AST e checagem de contradições lógicas em tempo real.
+![Início do Sistema no Terminal](Statics/Inicio%20do%20Sistema%20Terminal.png)
+
+### 2. Tela Inicial do Dashboard Interativo
+Visão geral do contrato com métricas, status do ciclo de vida FSM e painel de controle operacional.
+![Tela Inicial](Statics/Tela%20inicial.png)
+
+### 3. Ambiente do Interpretador & Editor (REPL)
+Editor de código `.jur` integrado com realce de sintaxe jurídica, execução sob demanda e console de saída.
+![Interpretador](Statics/Interpretador.png)
+
+### 4. Estilo e Certificação de Contrato
+Configuração de formatação jurídica visual, rodapés, marcas d'água e certificados de assinatura antes da compilação em PDF.
+![Estilo de Contrato](Statics/Estilo%20de%20contrato.png)
+
+### 5. Modelos Salvos
+Gerenciamento de contratos e templates padrão armazenados na base de conhecimento semântica do sistema.
+![Modelo Salvo](Statics/Modelo%20salvo.png)
+
+### 6. Banco de Dados e Histórico de Documentos
+Repositório indexado com histórico de versões, hash SHA-256 e status de auditoria de cada minuta.
+![Banco de Dados](Statics/Banco%20de%20dados.png)
+
+### 7. Precedentes e Jurisprudência Integrada
+Consulta de referências legais e precedentes aplicáveis às cláusulas e obrigações do contrato.
+![Precedentes](Statics/Precedentes.png)
 
 ---
 

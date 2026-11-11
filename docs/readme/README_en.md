@@ -30,6 +30,7 @@ Traditional legal contracts written as static text are prone to ambiguities, log
 - [Quick start](#-quick-start)
 - [How it works](#-how-it-works)
 - [Features](#-features)
+- [Visual Interface & Screenshots](#-visual-interface--screenshots)
 - [Showcases](#-showcases)
 - [FAQ](#-faq)
 - [Documentation](#-documentation)
@@ -83,6 +84,40 @@ juris examples/compra_imovel.jur
 | **Backend Services** | REST API for compilation, dynamic clause checks, and PDF certification | FastAPI, Uvicorn, ReportLab |
 | **Global CLI (`juris`)** | Single command to parse files and launch the visual web dashboard | Windows PATH / shell environment |
 | **Interactive Web UI** | Real-time state simulator, code editor (REPL), and audit trail dashboard | React, Vite, Node.js 18+ |
+
+---
+
+## 🖼️ Visual Interface & Screenshots
+
+Real screenshots showcasing the workflows within the **Juridico.Code** environment:
+
+### 1. Terminal Startup via Global CLI
+Running `juris` performs tokenization, AST generation, and anti-contradiction audits before opening the dashboard.
+![Terminal Startup](../../Statics/Inicio%20do%20Sistema%20Terminal.png)
+
+### 2. Main Dashboard & Contract Overview
+Interactive overview including state metrics, active contract parties, and FSM transition indicators.
+![Main Dashboard](../../Statics/Tela%20inicial.png)
+
+### 3. Legal Code Editor & REPL
+Integrated `.jur` code editor with syntax checks, execution output, and quick-action toolbars.
+![Interpreter & REPL](../../Statics/Interpretador.png)
+
+### 4. Contract Formatting & Certification
+Custom visual themes, header/footer configuration, watermarking, and digital signing parameters.
+![Contract Style](../../Statics/Estilo%20de%20contrato.png)
+
+### 5. Saved Contract Templates
+Browse and launch predefined legal templates from the local database.
+![Saved Templates](../../Statics/Modelo%20salvo.png)
+
+### 6. Document Database & Audit Trail
+Indexed archive of past contracts with SHA-256 verification and audit status tracking.
+![Database](../../Statics/Banco%20de%20dados.png)
+
+### 7. Legal Precedents & Knowledge Base
+Contextual legal references and statutes attached to clauses and obligations.
+![Precedents](../../Statics/Precedentes.png)
 
 ---
 
